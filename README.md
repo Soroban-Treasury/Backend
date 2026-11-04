@@ -2,8 +2,6 @@
 
 Backend for Stellar Treasury. It reads the treasury contract's events, keeps proposals in SQLite, serves them over HTTP, notifies approvers, and keeps an audit log.
 
-> The contract is unaudited and for testnet only.
-
 ## What it does
 
 1. **Indexes events.** Polls Soroban RPC `getEvents` for each configured treasury and saves a cursor, so a restart picks up where it stopped.
@@ -28,7 +26,7 @@ npm start
 |---|---|---|---|
 | `RPC_URL` | yes | | Soroban RPC URL |
 | `TREASURY_IDS` | yes | | Comma-separated treasury contract ids to index |
-| `NETWORK_PASSPHRASE` | no | testnet | Network passphrase |
+| `NETWORK_PASSPHRASE` | no | testnet | `Public Global Stellar Network ; September 2015` for mainnet |
 | `DB_PATH` | no | `treasury.db` | SQLite file |
 | `PORT` | no | `3000` | HTTP port |
 | `POLL_INTERVAL_MS` | no | `5000` | Time between polls |
