@@ -65,6 +65,9 @@ export interface IndexerOptions {
   logger?: Logger;
 }
 
+/** Most requests per treasury in one poll, so a busy or far-behind treasury cannot starve the others. */
+const MAX_PAGES_PER_POLL = 200;
+
 /** Roughly one day of ledgers at 5 s each. */
 const DEFAULT_LOOKBACK_LEDGERS = 17_280;
 
@@ -125,7 +128,7 @@ export class Indexer {
   private async pollTreasury(treasuryId: string): Promise<number> {
     this.db.ensureTreasury(treasuryId);
     let stored = 0;
-    for (;;) {
+    for (let pages = 0; pages < MAX_PAGES_PER_POLL; pages++) {
       const cursor = this.db.getCursor(treasuryId);
       const startLedger = cursor ? undefined : await this.firstLedger();
       const page = await this.source.getEvents({ contractId: treasuryId, cursor, startLedger, limit: this.pageSize });
@@ -149,7 +152,12 @@ export class Indexer {
       }
 
       if (page.cursor) this.db.setCursor(treasuryId, page.cursor);
-      if (page.events.length < this.pageSize || !page.cursor) break;
+      if (!page.cursor) break;
+      // A full page means there may be more. An empty page with a moved cursor means RPC scanned
+      // a stretch of ledgers without finding events, so keep going until the cursor stops moving.
+      const full = page.events.length >= this.pageSize;
+      const scannedOn = page.events.length === 0 && page.cursor !== cursor;
+      if (!full && !scannedOn) break;
     }
     return stored;
   }
