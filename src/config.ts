@@ -13,6 +13,8 @@ export interface AppConfig {
   webhookUrl?: string;
   /** If set, webhook bodies are signed with HMAC-SHA256 in the `x-treasury-signature` header. */
   webhookSecret?: string;
+  /** Origin allowed to read the API from a browser, for example the app's URL. Off by default. */
+  corsOrigin?: string;
 }
 
 export class ConfigError extends Error {
@@ -69,5 +71,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     startLedger: env.START_LEDGER ? int("START_LEDGER", env.START_LEDGER, 0, 1) : undefined,
     webhookUrl,
     webhookSecret: env.WEBHOOK_SECRET || undefined,
+    corsOrigin: env.CORS_ORIGIN || undefined,
   };
 }

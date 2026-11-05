@@ -371,6 +371,16 @@ describe("HTTP API", () => {
     expect((await get(`/nope`)).status).toBe(404);
   });
 
+  it("sends no CORS header unless configured, and the configured origin when it is", async () => {
+    expect((await fetch(`${base}/health`)).headers.get("access-control-allow-origin")).toBeNull();
+    const withCors = createApi(db, [TREASURY], { corsOrigin: "http://localhost:3000" });
+    await new Promise<void>((resolve) => withCors.listen(0, resolve));
+    const port = (withCors.address() as AddressInfo).port;
+    const res = await fetch(`http://127.0.0.1:${port}/health`);
+    expect(res.headers.get("access-control-allow-origin")).toBe("http://localhost:3000");
+    await new Promise((resolve) => withCors.close(resolve));
+  });
+
   it("only allows GET", async () => {
     const res = await fetch(`${base}/health`, { method: "POST" });
     expect(res.status).toBe(405);

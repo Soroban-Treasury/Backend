@@ -40,7 +40,7 @@ function intParam(url: URL, name: string, fallback: number, min: number, max: nu
  * - `GET /treasuries/:id/proposals/:proposalId`
  * - `GET /treasuries/:id/audit-log?limit=&offset=`
  */
-export function createApi(db: Db, treasuryIds: string[]): Server {
+export function createApi(db: Db, treasuryIds: string[], options: { corsOrigin?: string } = {}): Server {
   const tracked = new Set(treasuryIds);
 
   const handle = (req: IncomingMessage, res: ServerResponse): void => {
@@ -90,6 +90,10 @@ export function createApi(db: Db, treasuryIds: string[]): Server {
   };
 
   return createServer((req, res) => {
+    if (options.corsOrigin) {
+      res.setHeader("access-control-allow-origin", options.corsOrigin);
+      res.setHeader("vary", "origin");
+    }
     try {
       handle(req, res);
     } catch (error) {

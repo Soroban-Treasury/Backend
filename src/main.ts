@@ -20,7 +20,7 @@ const indexer = new Indexer({
   pollIntervalMs: config.pollIntervalMs,
 });
 
-const server = createApi(db, config.treasuryIds);
+const server = createApi(db, config.treasuryIds, { corsOrigin: config.corsOrigin });
 server.listen(config.port, () => {
   console.log(`API listening on :${config.port}, indexing ${config.treasuryIds.length} treasury(ies)`);
 });
