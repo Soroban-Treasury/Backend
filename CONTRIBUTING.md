@@ -2,7 +2,7 @@
 
 Thanks for helping. This is the API and indexer of Stellar Treasury.
 
-> This repository is a read-only mirror. The work happens in the Soroban-Treasury monorepo, in the `backend/` folder, and is split into this repository on every push. Open pull requests against the monorepo.
+> Open pull requests here. Maintainers also work on this code in the `backend/` folder of the Soroban-Treasury monorepo, and the two are kept in sync automatically: changes merged here are pulled into the monorepo, and changes made there arrive here.
 
 ## Setup
 
