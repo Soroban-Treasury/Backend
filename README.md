@@ -33,7 +33,7 @@ npm start
 | `START_LEDGER` | no | about 1 day back | First ledger for a treasury with no cursor. RPC only keeps recent ledgers, so set this near the treasury's creation ledger |
 | `WEBHOOK_URL` | no | | Where to POST notifications |
 | `WEBHOOK_SECRET` | no | | Signs webhook bodies (HMAC-SHA256) |
-| `CORS_ORIGIN` | no | off | Origin allowed to read the API from a browser, for example the app's URL |
+| `CORS_ORIGIN` | no | off | Origins allowed to read the API from a browser: the app's URL, a comma-separated list, or `*` |
 
 ## API
 

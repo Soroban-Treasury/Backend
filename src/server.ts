@@ -40,6 +40,21 @@ function intParam(url: URL, name: string, fallback: number, min: number, max: nu
  * - `GET /treasuries/:id/proposals/:proposalId`
  * - `GET /treasuries/:id/audit-log?limit=&offset=`
  */
+/**
+ * The CORS header for a request. `allowed` is one origin, a comma-separated list, or `*`.
+ * A request from a listed origin gets that origin back; one without an Origin header gets the first listed.
+ */
+export function corsHeaderFor(allowed: string | undefined, requestOrigin: string | undefined): string | null {
+  if (!allowed) return null;
+  const origins = allowed
+    .split(",")
+    .map((o) => (o.trim().endsWith("/") ? o.trim().slice(0, -1) : o.trim()))
+    .filter(Boolean);
+  if (origins.includes("*")) return "*";
+  if (!requestOrigin) return origins[0] ?? null;
+  return origins.includes(requestOrigin) ? requestOrigin : null;
+}
+
 export function createApi(db: Db, treasuryIds: string[], options: { corsOrigin?: string } = {}): Server {
   const tracked = new Set(treasuryIds);
 
@@ -90,10 +105,9 @@ export function createApi(db: Db, treasuryIds: string[], options: { corsOrigin?:
   };
 
   return createServer((req, res) => {
-    if (options.corsOrigin) {
-      res.setHeader("access-control-allow-origin", options.corsOrigin);
-      res.setHeader("vary", "origin");
-    }
+    const allowOrigin = corsHeaderFor(options.corsOrigin, req.headers.origin);
+    if (allowOrigin) res.setHeader("access-control-allow-origin", allowOrigin);
+    if (options.corsOrigin) res.setHeader("vary", "origin");
     try {
       handle(req, res);
     } catch (error) {

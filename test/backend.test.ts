@@ -8,7 +8,7 @@ import { decodeEvent } from "../src/events.js";
 import { Indexer } from "../src/indexer.js";
 import { WebhookNotifier } from "../src/notifier.js";
 import type { Notification } from "../src/notifier.js";
-import { createApi } from "../src/server.js";
+import { corsHeaderFor, createApi } from "../src/server.js";
 import { ASSET, FakeSource, OTHER_TREASURY, TREASURY, events, owners, recipient } from "./helpers.js";
 
 const silent = { info() {}, warn() {}, error() {} };
@@ -379,6 +379,26 @@ describe("HTTP API", () => {
     const res = await fetch(`http://127.0.0.1:${port}/health`);
     expect(res.headers.get("access-control-allow-origin")).toBe("http://localhost:3000");
     await new Promise((resolve) => withCors.close(resolve));
+  });
+
+  it("allows a list of origins, echoing the one that asked", async () => {
+    const withCors = createApi(db, [TREASURY], { corsOrigin: "http://localhost:4000, https://example.github.io/" });
+    await new Promise<void>((resolve) => withCors.listen(0, resolve));
+    const url = `http://127.0.0.1:${(withCors.address() as AddressInfo).port}/health`;
+    const from = async (origin: string) =>
+      (await fetch(url, { headers: { origin } })).headers.get("access-control-allow-origin");
+    expect(await from("https://example.github.io")).toBe("https://example.github.io");
+    expect(await from("http://localhost:4000")).toBe("http://localhost:4000");
+    expect(await from("https://evil.example")).toBeNull();
+    await new Promise((resolve) => withCors.close(resolve));
+  });
+
+  it("works out the CORS header", () => {
+    expect(corsHeaderFor(undefined, "https://a.example")).toBeNull();
+    expect(corsHeaderFor("*", "https://a.example")).toBe("*");
+    expect(corsHeaderFor("https://a.example", undefined)).toBe("https://a.example");
+    expect(corsHeaderFor("https://a.example,https://b.example", "https://b.example")).toBe("https://b.example");
+    expect(corsHeaderFor("https://a.example", "https://b.example")).toBeNull();
   });
 
   it("only allows GET", async () => {
