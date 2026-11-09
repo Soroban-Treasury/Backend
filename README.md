@@ -2,6 +2,8 @@
 
 Backend for Stellar Treasury. It reads the treasury contract's events, keeps proposals in SQLite, serves them over HTTP, notifies approvers, and keeps an audit log.
 
+**[Live demo on testnet](https://soroban-treasury.github.io/Frontend/demo/)** · Stellar Treasury repos: [Contract](https://github.com/Soroban-Treasury/Contract) · [SDK](https://github.com/Soroban-Treasury/SDK) · [Backend](https://github.com/Soroban-Treasury/Backend) · [Frontend](https://github.com/Soroban-Treasury/Frontend)
+
 ## What it does
 
 1. **Indexes events.** Polls Soroban RPC `getEvents` for each configured treasury and saves a cursor, so a restart picks up where it stopped.
