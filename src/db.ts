@@ -260,18 +260,33 @@ export class Db {
       .all(treasuryId, params.limit ?? 50, params.offset ?? 0) as Row[];
     return {
       total,
-      entries: rows.map((r) => ({
-        seq: Number(r.seq),
-        treasuryId: String(r.treasury_id),
-        type: String(r.type),
-        proposalId: r.proposal_id === null ? null : Number(r.proposal_id),
-        data: JSON.parse(String(r.data)) as unknown,
-        ledger: Number(r.ledger),
-        txHash: String(r.tx_hash),
-        at: String(r.at),
-      })),
+      entries: rows.map(toAuditEntry),
     };
   }
+
+  /**
+   * One page of audit log entries in chronological order (`seq > afterSeq`, oldest first).
+   * Uses the `audit_by_treasury` index so large logs stream page by page without loading all rows at once.
+   */
+  auditLogPageAfter(treasuryId: string, afterSeq = 0, limit = 200): AuditEntry[] {
+    const rows = this.sql
+      .prepare("SELECT * FROM audit_log WHERE treasury_id = ? AND seq > ? ORDER BY seq ASC LIMIT ?")
+      .all(treasuryId, afterSeq, limit) as Row[];
+    return rows.map(toAuditEntry);
+  }
+}
+
+function toAuditEntry(r: Row): AuditEntry {
+  return {
+    seq: Number(r.seq),
+    treasuryId: String(r.treasury_id),
+    type: String(r.type),
+    proposalId: r.proposal_id === null ? null : Number(r.proposal_id),
+    data: JSON.parse(String(r.data)) as unknown,
+    ledger: Number(r.ledger),
+    txHash: String(r.tx_hash),
+    at: String(r.at),
+  };
 }
 
 function toProposal(row: Row, nowSeconds: number): ProposalRecord {
