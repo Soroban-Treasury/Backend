@@ -47,6 +47,7 @@ Only treasuries listed in `TREASURY_IDS` are served. Amounts are strings (token 
 | `GET /treasuries/:id/proposals?status=open\|executed\|expired&limit=50&offset=0` | Proposals, newest first. `limit` max 200 |
 | `GET /treasuries/:id/proposals/:proposalId` | One proposal |
 | `GET /treasuries/:id/audit-log?limit=50&offset=0` | Events, newest first |
+| `GET /treasuries/:id/audit-log.csv` | Whole audit log as a CSV download (`content-disposition: attachment`), oldest first, streamed page by page with exact string amounts and ISO 8601 timestamps |
 
 A proposal:
 
@@ -91,4 +92,4 @@ Tests use fake event sources and an in-memory database, so they need no network.
 
 ## Not built yet
 
-Email and Slack/Discord notifiers (`TODO(wave: api-1)`, `api-2`), CSV audit export, OpenAPI spec.
+Email and Slack/Discord notifiers (`TODO(wave: api-1)`, `api-2`), OpenAPI spec.

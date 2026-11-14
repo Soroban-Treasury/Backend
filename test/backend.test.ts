@@ -8,7 +8,7 @@ import { decodeEvent } from "../src/events.js";
 import { Indexer } from "../src/indexer.js";
 import { WebhookNotifier } from "../src/notifier.js";
 import type { Notification } from "../src/notifier.js";
-import { corsHeaderFor, createApi } from "../src/server.js";
+import { AUDIT_CSV_COLUMNS, corsHeaderFor, createApi, escapeCsvField } from "../src/server.js";
 import { ASSET, FakeSource, OTHER_TREASURY, TREASURY, events, owners, recipient } from "./helpers.js";
 
 const silent = { info() {}, warn() {}, error() {} };
@@ -404,6 +404,193 @@ describe("HTTP API", () => {
   it("only allows GET", async () => {
     const res = await fetch(`${base}/health`, { method: "POST" });
     expect(res.status).toBe(405);
+  });
+
+  describe("GET /treasuries/:id/audit-log.csv", () => {
+    /** RFC 4180 parser handling quoted commas, doubled quotes, and embedded CR/LF newlines. */
+    function parseCsv(text: string): string[][] {
+      const rows: string[][] = [];
+      let row: string[] = [];
+      let cell = "";
+      let inQuotes = false;
+
+      for (let i = 0; i < text.length; i++) {
+        const ch = text[i]!;
+        if (inQuotes) {
+          if (ch === '"') {
+            if (text[i + 1] === '"') {
+              cell += '"';
+              i++;
+            } else {
+              inQuotes = false;
+            }
+          } else {
+            cell += ch;
+          }
+        } else if (ch === '"') {
+          inQuotes = true;
+        } else if (ch === ",") {
+          row.push(cell);
+          cell = "";
+        } else if (ch === "\n") {
+          row.push(cell);
+          rows.push(row);
+          row = [];
+          cell = "";
+        } else if (ch === "\r") {
+          // Ignore CR before LF outside quotes.
+        } else {
+          cell += ch;
+        }
+      }
+      if (inQuotes || cell.length > 0 || row.length > 0) {
+        row.push(cell);
+        rows.push(row);
+      }
+      return rows;
+    }
+
+    it("exports the whole log oldest first with attachment header, exact string amounts, and ISO 8601 times", async () => {
+      const bigAmount = (2n ** 100n).toString();
+      db.applyEvent(
+        TREASURY,
+        {
+          type: "proposed",
+          id: 99,
+          proposer: owners[0]!,
+          asset: ASSET,
+          to: recipient,
+          amount: bigAmount,
+          expiresAt: 1_793_750_000,
+        },
+        { eventId: "evt-big", ledger: 999, txHash: "tx-big", at: "2026-11-04T01:02:03Z" },
+      );
+
+      const res = await fetch(`${base}/treasuries/${TREASURY}/audit-log.csv`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toContain("text/csv");
+      expect(res.headers.get("content-disposition")).toContain("attachment");
+
+      const rows = parseCsv(await res.text());
+      expect(rows[0]).toEqual([...AUDIT_CSV_COLUMNS]);
+      // 6 seeded events + 1 big-amount event = 7 data rows, ordered oldest first.
+      expect(rows).toHaveLength(8);
+
+      const col = (name: (typeof AUDIT_CSV_COLUMNS)[number]) => AUDIT_CSV_COLUMNS.indexOf(name);
+      const dataRows = rows.slice(1);
+      expect(dataRows.map((r) => r[col("type")])).toEqual([
+        "initialized",
+        "proposed",
+        "proposed",
+        "approved",
+        "executed",
+        "limit_set",
+        "proposed",
+      ]);
+
+      const last = dataRows.at(-1)!;
+      expect(last[col("amount")]).toBe("1267650600228229401496703205376");
+      expect(last[col("at")]).toBe("2026-11-04T01:02:03Z");
+      expect(last[col("expires_at")]).toBe(new Date(1_793_750_000 * 1000).toISOString());
+      for (const row of dataRows) {
+        expect(row[col("at")]).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/);
+        if (row[col("expires_at")]) {
+          expect(row[col("expires_at")]).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/);
+        }
+      }
+    });
+
+    it("escapes commas, double quotes, and newlines in CSV fields", async () => {
+      expect(escapeCsvField("plain")).toBe("plain");
+      expect(escapeCsvField("a,b")).toBe('"a,b"');
+      expect(escapeCsvField('say "hi"')).toBe('"say ""hi"""');
+      expect(escapeCsvField("line1\nline2")).toBe('"line1\nline2"');
+
+      const trickyHash = 'tx,with"quote\nand\r\ncrlf';
+      db.applyEvent(
+        TREASURY,
+        {
+          type: "executed",
+          id: 77,
+          executor: 'G"ACTOR,1\nLINE2',
+          asset: ASSET,
+          to: "G,RECIPIENT\n2",
+          amount: "90000000000000000001",
+        },
+        { eventId: "evt-escape", ledger: 555, txHash: trickyHash, at: "2026-11-05T12:00:00Z" },
+      );
+
+      const res = await fetch(`${base}/treasuries/${TREASURY}/audit-log.csv`);
+      const rows = parseCsv(await res.text());
+      const col = (name: (typeof AUDIT_CSV_COLUMNS)[number]) => AUDIT_CSV_COLUMNS.indexOf(name);
+      const escapedRow = rows.at(-1)!;
+
+      expect(escapedRow[col("tx_hash")]).toBe(trickyHash);
+      expect(escapedRow[col("actor")]).toBe('G"ACTOR,1\nLINE2');
+      expect(escapedRow[col("to")]).toBe("G,RECIPIENT\n2");
+      expect(escapedRow[col("amount")]).toBe("90000000000000000001");
+      expect(JSON.parse(escapedRow[col("data")]!)).toMatchObject({
+        type: "executed",
+        executor: 'G"ACTOR,1\nLINE2',
+        to: "G,RECIPIENT\n2",
+      });
+    });
+
+    it("returns just the header row for an empty audit log", async () => {
+      const emptyDb = new Db(":memory:");
+      const emptyServer = createApi(emptyDb, [OTHER_TREASURY]);
+      await new Promise<void>((resolve) => emptyServer.listen(0, resolve));
+      const emptyBase = `http://127.0.0.1:${(emptyServer.address() as AddressInfo).port}`;
+      try {
+        const res = await fetch(`${emptyBase}/treasuries/${OTHER_TREASURY}/audit-log.csv`);
+        expect(res.status).toBe(200);
+        expect(res.headers.get("content-disposition")).toContain("attachment");
+        const text = await res.text();
+        expect(text).toBe(`${AUDIT_CSV_COLUMNS.join(",")}\n`);
+      } finally {
+        await new Promise((resolve) => emptyServer.close(resolve));
+        emptyDb.close();
+      }
+    });
+
+    it("streams logs longer than one page across multiple DB page reads", async () => {
+      const largeDb = new Db(":memory:");
+      for (let i = 1; i <= 205; i++) {
+        largeDb.applyEvent(
+          TREASURY,
+          { type: "approved", id: i, owner: owners[0]!, approvals: 1 },
+          { eventId: `page-evt-${i}`, ledger: 1000 + i, txHash: `tx-${i}`, at: "2026-11-04T00:00:00Z" },
+        );
+      }
+      const pageSpy = vi.spyOn(largeDb, "auditLogPageAfter");
+      const pagedServer = createApi(largeDb, [TREASURY], { csvPageSize: 50 });
+      await new Promise<void>((resolve) => pagedServer.listen(0, resolve));
+      const pagedBase = `http://127.0.0.1:${(pagedServer.address() as AddressInfo).port}`;
+      try {
+        const res = await fetch(`${pagedBase}/treasuries/${TREASURY}/audit-log.csv`);
+        expect(res.status).toBe(200);
+        const rows = parseCsv(await res.text());
+        expect(rows).toHaveLength(206); // header + 205 rows
+        expect(pageSpy.mock.calls.length).toBeGreaterThanOrEqual(5);
+        expect(rows[1]![0]).toBe("1");
+        expect(rows[205]![0]).toBe("205");
+      } finally {
+        await new Promise((resolve) => pagedServer.close(resolve));
+        largeDb.close();
+      }
+    });
+
+    it("returns the same errors as the JSON route for bad or untracked treasury ids", async () => {
+      const badJson = await get("/treasuries/not-an-id/audit-log");
+      const badCsv = await get("/treasuries/not-an-id/audit-log.csv");
+      expect(badCsv).toEqual(badJson);
+      expect(badCsv.status).toBe(400);
+
+      const untrackedJson = await get(`/treasuries/${OTHER_TREASURY}/audit-log`);
+      const untrackedCsv = await get(`/treasuries/${OTHER_TREASURY}/audit-log.csv`);
+      expect(untrackedCsv).toEqual(untrackedJson);
+      expect(untrackedCsv.status).toBe(404);
+    });
   });
 });
 
